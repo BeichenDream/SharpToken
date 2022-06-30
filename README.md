@@ -51,6 +51,15 @@ SharpToken list_token
 
 ![image](https://user-images.githubusercontent.com/43266206/176751244-dd8f8899-59ec-48e5-9bee-464c0e146573.png)
 
+## 从指定进程枚举Token
+
+```
+SharpToken list_token 468
+```
+
+![image](https://user-images.githubusercontent.com/43266206/176753494-3c6df1cb-5d14-4b36-aa61-ca68a8c38009.png)
+
+
 
 ## 获得交互式shell
 
