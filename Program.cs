@@ -1711,7 +1711,7 @@ example:
     SharpToken list_token
     SharpToken list_token 6543
     SharpToken add_user ""NT AUTHORITY\SYSTEM"" admin 123456 Administrators
-    SharpToken delete_user ""NT AUTHORITY\SYSTEM"" admin 123456 Administrators
+    SharpToken delete_user ""NT AUTHORITY\SYSTEM"" admin
     SharpToken execute ""NT AUTHORITY\SYSTEM"" ""cmd /c whoami""
     SharpToken execute ""NT AUTHORITY\SYSTEM"" cmd true
 ");
