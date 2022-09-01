@@ -20,24 +20,34 @@ SharpToken COMMAND arguments
 
 COMMANDS:
 
-        list_token [process pid]
+	list_token [process pid]	
 
-        list_all_token [process pid]
+	list_all_token [process pid]
 
-        add_user <tokenUser> <username> <password> [group] [domain]
+	add_user    <username> <password> [group] [domain]
 
-        delete_user <tokenUser> <username> [domain]
+	enableUser <username> <NewPassword> [NewGroup]
 
-    execute <tokenUser> <commandLine> [Interactive]
+	delete_user <username> [domain]
+    
+	execute <tokenUser> <commandLine> [Interactive]
+
+	enableRDP
+
+	tscon <targetSessionId> [sourceSessionId]
 
 
 example:
     SharpToken list_token
     SharpToken list_token 6543
-    SharpToken add_user "NT AUTHORITY\SYSTEM" admin 123456 Administrators
-    SharpToken delete_user "NT AUTHORITY\SYSTEM" admin
+    SharpToken add_user admin Abcd1234! Administrators
+    SharpToken enableUser Guest Abcd1234! Administrators
+    SharpToken delete_user admin
     SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami"
     SharpToken execute "NT AUTHORITY\SYSTEM" cmd true
+    SharpToken tscon 1
+
+
 ```
 
 
