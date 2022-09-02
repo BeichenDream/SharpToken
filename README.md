@@ -3,7 +3,7 @@
 
 .NET版本的incognito
 
-![image](https://user-images.githubusercontent.com/43266206/176751034-a6f46325-d221-407b-a50c-281862a17ea1.png)
+![image](https://user-images.githubusercontent.com/43266206/188081018-8717b066-1143-48b8-b62b-31360316cce1.png)
 
 
 ## Usage
