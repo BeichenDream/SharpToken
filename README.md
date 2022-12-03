@@ -1,7 +1,7 @@
 # SharpToken
 
 
-.NET版本的incognito
+NET version of incognito
 
 ![image](https://user-images.githubusercontent.com/43266206/188081018-8717b066-1143-48b8-b62b-31360316cce1.png)
 
@@ -62,9 +62,18 @@ example:
 
 ```
 
-## 枚举Token
+## Elevated Permissions
 
-枚举的信息包括SID,LogonDomain,UserName,Session,LogonType,TokenType,TokenHandle(Duplicate后的Token句柄),TargetProcessId(Token来源的进程),TargetProcessToken(Token在源进程的句柄)，Groups(Token用户所在组)
+In addition to the usual Token stealing privilege enhancement, SharpToken also supports obtaining Tokens with integrity through Bypass
+
+If you are an NT AUTHORITY/NETWORK SERVICE user and you add the bypass parameter, SharpToken will steal System from RPCSS, that is, unconditional NT AUTHORITY\NETWORK SERVICE to NT AUTHORITY\SYSTEM 
+
+![image](https://user-images.githubusercontent.com/43266206/205461409-0b17af46-00f5-4d68-9a16-a2edd76e67ab.png)
+
+
+## ListToken
+
+Enumerated information includes SID, LogonDomain, UserName, Session, LogonType, TokenType, TokenHandle (handle of Token after Duplicate), TargetProcessId (process from which Token originates), TargetProcessToken (handle of Token in source process), Groups (group in which Token user is located)
 
 ```
 SharpToken list_token
@@ -72,7 +81,7 @@ SharpToken list_token
 
 ![image](https://user-images.githubusercontent.com/43266206/176751244-dd8f8899-59ec-48e5-9bee-464c0e146573.png)
 
-## 从指定进程枚举Token
+## Enumerate Tokens from the specified process
 
 ```
 SharpToken list_token 468
@@ -82,7 +91,7 @@ SharpToken list_token 468
 
 
 
-## 获得交互式shell
+## Get an interactive shell
 
 ```
 execute "NT AUTHORITY\SYSTEM" cmd true
@@ -90,7 +99,7 @@ execute "NT AUTHORITY\SYSTEM" cmd true
 
 ![image](https://user-images.githubusercontent.com/43266206/176751714-c7edb21c-f0be-4794-a14f-be4a7b1fdf61.png)
 
-## 获取命令执行结果(webshell下执行)
+## Get command execution results (executed under webshell)
 
 ```
 SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami"
@@ -98,7 +107,7 @@ SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami"
 
 ![image](https://user-images.githubusercontent.com/43266206/176751980-dd9413f4-1a4d-4cb0-8ba2-5e0b9ccb2eed.png)
 
-## 引用
+## Reference
 
 https://www.tiraniddo.dev/2020/04/sharing-logon-session-little-too-much.html
 
