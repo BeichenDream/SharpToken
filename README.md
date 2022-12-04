@@ -112,3 +112,7 @@ SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami"
 https://www.tiraniddo.dev/2020/04/sharing-logon-session-little-too-much.html
 
 https://github.com/decoder-it/NetworkServiceExploit
+
+https://github.com/FSecureLABS/incognito
+
+https://github.com/chroblert/JCTokenUtil
