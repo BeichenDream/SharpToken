@@ -142,7 +142,11 @@ Where 1 is the target user's desktop and 2 is the desktop we want to receive
 ```
 
 
-## Reference
+# LICENSE
+
+[GNU General Public License](/LICENSE) 
+
+# Reference
 
 https://www.tiraniddo.dev/2020/04/sharing-logon-session-little-too-much.html
 
