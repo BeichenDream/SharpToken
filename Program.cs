@@ -970,84 +970,82 @@ namespace SharpToken
         public bool CreateProcess(string commandLine, bool bInheritHandles, uint dwCreationFlags, ref STARTUPINFO startupinfo, out PROCESS_INFORMATION processInformation)
         {
 
-            if (TokenType != TOKEN_TYPE.TokenPrimary)
+            IntPtr tmpTokenHandle = IntPtr.Zero;
+            if (NativeMethod.DuplicateTokenEx(this.TokenHandle, NativeMethod.TOKEN_ELEVATION, IntPtr.Zero, this.ImpersonationLevel, TOKEN_TYPE.TokenPrimary,
+                out tmpTokenHandle))
             {
-                IntPtr tmpTokenHandle = IntPtr.Zero;
-                if (NativeMethod.DuplicateTokenEx(this.TokenHandle, NativeMethod.TOKEN_ELEVATION, IntPtr.Zero, this.ImpersonationLevel, TOKEN_TYPE.TokenPrimary,
-                    out tmpTokenHandle))
-                {
-                    NativeMethod.CloseHandle(this.TokenHandle);
-                    this.TokenHandle = tmpTokenHandle;
-                }
-                else
-                {
-                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-                }
+                NativeMethod.CloseHandle(this.TokenHandle);
+                this.TokenHandle = tmpTokenHandle;
+            }
+            else
+            {
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
             }
 
             NativeMethod.SetLastError(0);
 
-            if (NativeMethod.CreateProcessAsUserW(this.TokenHandle, null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles, dwCreationFlags
-                    , IntPtr.Zero, null, ref startupinfo, out processInformation))
-            {
-                return true;
-            }
+
 
             //The TokenHandle of CreateProcessWithTokenW must have TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID permissions
-            if ( NativeMethod.CreateProcessWithTokenW(this.TokenHandle, 0, null, commandLine, dwCreationFlags, IntPtr.Zero, null, ref startupinfo,
-                    out processInformation))
+
+            if (NativeMethod.CreateProcessWithTokenW(this.TokenHandle, 0, null, commandLine, dwCreationFlags, IntPtr.Zero, null, ref startupinfo,
+        out processInformation))
             {
                 return true;
             }
-                else
+
+
+            if (NativeMethod.CreateProcessAsUserW(this.TokenHandle, null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles, dwCreationFlags
+                                , IntPtr.Zero, null, ref startupinfo, out processInformation))
+            {
+                return true;
+            }
+            else if (Marshal.GetLastWin32Error() == 1314)
+            {
+                uint newDwCreationFlags = dwCreationFlags | (uint)ProcessCreateFlags.CREATE_SUSPENDED;
+                newDwCreationFlags |= (uint)ProcessCreateFlags.CREATE_UNICODE_ENVIRONMENT;
+                if (NativeMethod.CreateProcessW(null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles, newDwCreationFlags, IntPtr.Zero, null, ref startupinfo, out processInformation))
                 {
-                    uint newDwCreationFlags = dwCreationFlags | (uint)ProcessCreateFlags.CREATE_SUSPENDED;
-                    newDwCreationFlags |= (uint)ProcessCreateFlags.CREATE_UNICODE_ENVIRONMENT;
-                    if (NativeMethod.CreateProcessW(null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles, newDwCreationFlags, IntPtr.Zero, null, ref startupinfo, out processInformation))
+                    //init PROCESS_ACCESS_TOKEN
+                    uint PROCESS_ACCESS_TOKEN_SIZE = (uint)Marshal.SizeOf(typeof(PROCESS_ACCESS_TOKEN));
+                    PROCESS_ACCESS_TOKEN processAccessToken = new PROCESS_ACCESS_TOKEN();
+                    IntPtr tokenInfoPtr = Marshal.AllocHGlobal((int)PROCESS_ACCESS_TOKEN_SIZE);
+                    processAccessToken.Token = this.TokenHandle;
+                    processAccessToken.Thread = processInformation.hThread;
+                    Marshal.StructureToPtr(processAccessToken, tokenInfoPtr, false);
+
+                    uint status = NativeMethod.NtSetInformationProcess(processInformation.hProcess, PROCESS_INFORMATION_CLASS.ProcessAccessToken, tokenInfoPtr, PROCESS_ACCESS_TOKEN_SIZE);
+                    Marshal.FreeHGlobal(tokenInfoPtr);
+                    if (status == NativeMethod.STATUS_SUCCESS)
                     {
-                        //init PROCESS_ACCESS_TOKEN
-                        uint PROCESS_ACCESS_TOKEN_SIZE = (uint)Marshal.SizeOf(typeof(PROCESS_ACCESS_TOKEN));
-                        PROCESS_ACCESS_TOKEN processAccessToken = new PROCESS_ACCESS_TOKEN();
-                        IntPtr tokenInfoPtr = Marshal.AllocHGlobal((int)PROCESS_ACCESS_TOKEN_SIZE);
-                        processAccessToken.Token = this.TokenHandle;
-                        processAccessToken.Thread = processInformation.hThread;
-                        Marshal.StructureToPtr(processAccessToken, tokenInfoPtr, false);
 
-                        uint status = NativeMethod.NtSetInformationProcess(processInformation.hProcess, PROCESS_INFORMATION_CLASS.ProcessAccessToken, tokenInfoPtr, PROCESS_ACCESS_TOKEN_SIZE);
-                        Marshal.FreeHGlobal(tokenInfoPtr);
-                        if (status == NativeMethod.STATUS_SUCCESS)
+                        if ((dwCreationFlags & (uint)ProcessCreateFlags.PROFILE_USER) == 0)
                         {
-
-                            if ((dwCreationFlags & (uint)ProcessCreateFlags.PROFILE_USER) == 0)
+                            if (NativeMethod.NtResumeProcess(processInformation.hProcess) != NativeMethod.STATUS_SUCCESS)
                             {
-                                if (NativeMethod.NtResumeProcess(processInformation.hProcess) != NativeMethod.STATUS_SUCCESS)
-                                {
-                                    NativeMethod.CloseHandle(processInformation.hThread);
-                                    NativeMethod.CloseHandle(processInformation.hProcess);
-                                    NativeMethod.NtTerminateProcess(processInformation.hProcess, 0);
-                                    processInformation.hProcess = IntPtr.Zero;
-                                    processInformation.hThread = IntPtr.Zero;
-                                    return false;
-                                }
+                                NativeMethod.CloseHandle(processInformation.hThread);
+                                NativeMethod.CloseHandle(processInformation.hProcess);
+                                NativeMethod.NtTerminateProcess(processInformation.hProcess, 0);
+                                processInformation.hProcess = IntPtr.Zero;
+                                processInformation.hThread = IntPtr.Zero;
+                                return false;
                             }
-                            return true;
-                    }
-                        else
-                        {
-                            NativeMethod.CloseHandle(processInformation.hThread);
-                            NativeMethod.CloseHandle(processInformation.hProcess);
-                            NativeMethod.NtTerminateProcess(processInformation.hProcess, 0);
-                            processInformation.hProcess = IntPtr.Zero;
-                            processInformation.hThread = IntPtr.Zero;
                         }
+                        return true;
+                    }
+                    else
+                    {
+                        NativeMethod.CloseHandle(processInformation.hThread);
+                        NativeMethod.CloseHandle(processInformation.hProcess);
+                        NativeMethod.NtTerminateProcess(processInformation.hProcess, 0);
+                        processInformation.hProcess = IntPtr.Zero;
+                        processInformation.hThread = IntPtr.Zero;
                     }
                 }
+            }
 
             return false;
-
-
         }
-
         public void Close()
         {
             if (this.TokenHandle != IntPtr.Zero && !IsClose)
